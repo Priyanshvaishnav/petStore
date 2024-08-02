@@ -1,0 +1,40 @@
+---
+- name: Build and Deploy Docker Container
+  hosts: http://34.214.64.21:8088/
+  become: yes
+  vars:
+    docker_image_name: "priyansh21/devsecops"
+    docker_image_tag: "latest"
+    dockerhub_username: "priyansh21"
+    dockerhub_password: "Priyansh@21112003"
+    container_name: "myapp-container"
+    
+  tasks:
+    - name: Build Docker image
+      docker_image:
+        name: "{{ docker_image_name }}"
+        tag: "{{ docker_image_tag }}"
+        build:
+          path: .
+        state: present
+    
+    - name: Log in to Docker Hub
+      docker_login:
+        username: "{{ dockerhub_username }}"
+        password: "{{ dockerhub_password }}"
+        registry: "https://index.docker.io/v1/"
+    
+    - name: Push Docker image to Docker Hub
+      docker_image:
+        name: "{{ docker_image_name }}"
+        tag: "{{ docker_image_tag }}"
+        state: pushed
+
+    - name: Deploy Docker container
+      docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image_name }}:{{ docker_image_tag }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "80801:8081"  
