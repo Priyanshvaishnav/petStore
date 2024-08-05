@@ -1,0 +1,278 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk21'
+        maven 'maven3'
+    }
+     environment {
+        DOCKER_HUB_CREDENTIALS = credentials('docker') // Replace with your credentials ID
+        DOCKER_HUB_REPO = 'priyansh21/devsecops' // Replace with your Docker Hub repository
+        TOMCAT_USER = 'admin' // Replace with your Tomcat user
+        TOMCAT_PASSWORD = 'admin' // Replace with your Tomcat password
+        TOMCAT_URL = 'http://54.241.31.165:8080/' // Replace with your Tomcat server URL
+    }
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Checkout SCM') {
+            steps {
+                git 'https://github.com/Priyanshvaishnav/petStore.git'
+            }
+        }
+
+        stage('Maven Compile') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+
+        stage('Maven Test') {
+            steps {
+                script {
+                    try {
+                        sh 'mvn test'
+                    } catch (Exception e) {
+                        echo 'Tests failed.'
+                        currentBuild.result = 'UNSTABLE'
+                    } finally {
+                        archiveArtifacts artifacts: '**/target/surefire-reports/*.xml', allowEmptyArchive: true
+                        junit '**/target/surefire-reports/*.xml'
+                    }
+                }
+            }
+        }
+        stage('Maven Package') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+
+        
+                   
+            stage('SonarQube Analysis') {
+            environment {
+                SCANNER_HOME = tool name: 'Sonar-Scanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+            }
+            steps {
+                withSonarQubeEnv('Sonar-Server') {
+                    sh """
+                    ${SCANNER_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectKey=Priyansh \
+                    -Dsonar.projectName=DevSecOps \
+                    -Dsonar.projectVersion=1.0 \
+                    -Dsonar.sources=src \
+                    -Dsonar.java.binaries=target/classes
+                    """
+                }
+                sleep time: 30, unit: 'SECONDS'
+                echo "Waiting for quality gate result..."
+                script {
+                    def qg = waitForQualityGate()
+                    if (qg.status != 'OK') {
+                        error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                    }
+                }
+            }
+        }
+      
+         stage('OWASP Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --format XML', odcInstallation: 'Dependenct-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        
+         stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t devsecops .'
+                }
+            }
+        }
+
+        stage('Tag Docker Image') {
+            steps {
+                script {
+                    sh 'sudo docker tag devsecops ${DOCKER_HUB_REPO}:${BUILD_NUMBER}'
+                    sh 'sudo docker tag devsecops ${DOCKER_HUB_REPO}:latest'
+                }
+            }
+        }
+
+          stage('Push Docker Image to Docker Hub') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                        sh 'echo "Logged in DockerHub Successfully" '
+                        sh 'sudo docker push ${DOCKER_HUB_REPO}:${BUILD_NUMBER}'
+                        sh 'sudo docker push ${DOCKER_HUB_REPO}:latest'
+                    }
+                }
+            }
+        }
+        
+       stage("Deploy To Tomcat"){
+            steps{
+                sh "sudo cp target/jpetstore.war /opt/apache-tomcat-9.0.65/webapps/ "
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline completed'
+        }
+        failure {
+            echo 'Pipeline failed'
+        }
+        unstable {
+            echo 'Pipeline unstable'
+        }
+    }
+}
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk21'
+        maven 'maven3'
+    }
+     environment {
+        DOCKER_HUB_CREDENTIALS = credentials('docker') 
+        DOCKER_HUB_REPO = 'priyansh21/devsecops' 
+        TOMCAT_USER = 'admin' 
+        TOMCAT_PASSWORD = 'admin' 
+        TOMCAT_URL = 'http://54.241.31.165:8080/' 
+    }
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Checkout SCM') {
+            steps {
+                git 'https://github.com/Priyanshvaishnav/petStore.git'
+            }
+        }
+
+        stage('Maven Compile') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+
+        stage('Maven Test') {
+            steps {
+                script {
+                    try {
+                        sh 'mvn test'
+                    } catch (Exception e) {
+                        echo 'Tests failed.'
+                        currentBuild.result = 'UNSTABLE'
+                    } finally {
+                        archiveArtifacts artifacts: '**/target/surefire-reports/*.xml', allowEmptyArchive: true
+                        junit '**/target/surefire-reports/*.xml'
+                    }
+                }
+            }
+        }
+        stage('Maven Package') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+
+        
+                   
+            stage('SonarQube Analysis') {
+            environment {
+                SCANNER_HOME = tool name: 'Sonar-Scanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+            }
+            steps {
+                withSonarQubeEnv('Sonar-Server') {
+                    sh """
+                    ${SCANNER_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectKey=Priyansh \
+                    -Dsonar.projectName=DevSecOps \
+                    -Dsonar.projectVersion=1.0 \
+                    -Dsonar.sources=src \
+                    -Dsonar.java.binaries=target/classes
+                    """
+                }
+                sleep time: 30, unit: 'SECONDS'
+                echo "Waiting for quality gate result..."
+                script {
+                    def qg = waitForQualityGate()
+                    if (qg.status != 'OK') {
+                        error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                    }
+                }
+            }
+        }
+      
+         stage('OWASP Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --format XML', odcInstallation: 'Dependenct-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        
+         stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t devsecops .'
+                }
+            }
+        }
+
+        stage('Tag Docker Image') {
+            steps {
+                script {
+                    sh 'sudo docker tag devsecops ${DOCKER_HUB_REPO}:${BUILD_NUMBER}'
+                    sh 'sudo docker tag devsecops ${DOCKER_HUB_REPO}:latest'
+                }
+            }
+        }
+
+          stage('Push Docker Image to Docker Hub') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                        sh 'echo "Logged in DockerHub Successfully" '
+                        sh 'sudo docker push ${DOCKER_HUB_REPO}:${BUILD_NUMBER}'
+                        sh 'sudo docker push ${DOCKER_HUB_REPO}:latest'
+                    }
+                }
+            }
+        }
+        
+       stage("Deploy To Tomcat"){
+            steps{
+                sh "sudo cp target/jpetstore.war /opt/apache-tomcat-9.0.65/webapps/ "
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline completed'
+        }
+        failure {
+            echo 'Pipeline failed'
+        }
+        unstable {
+            echo 'Pipeline unstable'
+        }
+    }
+}
